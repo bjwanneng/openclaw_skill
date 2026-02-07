@@ -27,3 +27,8 @@ env/
 # 临时文件
 *.tmp
 *.log
+
+# 第三方技能（从别处下载的，不纳入版本管理）
+rssaurus/
+veadk-go-skills/
+veadk-skills/
