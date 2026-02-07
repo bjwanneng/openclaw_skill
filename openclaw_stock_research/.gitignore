@@ -1,0 +1,158 @@
+# =============================================================================
+# OpenClaw 投研分析系统 - Git忽略文件
+# =============================================================================
+
+# =============================================================================
+# 用户指定忽略的目录
+# =============================================================================
+
+# 设计规则文档目录
+# design_doc/
+# design_doc/*
+
+# =============================================================================
+# Python项目标准忽略项
+# =============================================================================
+
+# 字节码文件
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# 虚拟环境
+venv/
+ENV/
+env/
+.venv
+
+# 分发/打包
+build/
+dist/
+*.egg-info/
+.eggs/
+*.egg
+pip-wheel-metadata/
+
+# 测试相关
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+
+# 类型检查
+.mypy_cache/
+.dmypy.json
+.dmypy/
+.pytype/
+
+# IDE和编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+*.ipynb
+
+# 环境变量文件
+.env
+.env.local
+.env.*.local
+.env.development
+.env.test
+.env.production
+
+# 日志文件
+*.log
+logs/
+log/
+
+# 本地数据库
+*.db
+*.sqlite
+*.sqlite3
+
+# 临时文件
+tmp/
+temp/
+*.tmp
+*.temp
+
+# =============================================================================
+# 项目特定忽略项
+# =============================================================================
+
+# 数据缓存目录（项目特定）
+# data/
+cache/
+caches/
+
+# AKShare数据缓存（通常很大，建议忽略）
+*.akshare_cache/
+akshare_data/
+
+# 测试生成的中间文件
+tests/__pycache__/
+tests/.pytest_cache/
+tests/output/
+tests/results/
+
+# 调试生成的文件
+debug_output/
+test_output/
+
+# 本地配置文件（可能包含敏感信息）
+config.local.yaml
+config.local.json
+settings.local.py
+
+# 文档生成目录（通常由CI生成）
+docs/_build/
+site/
+
+# 部署相关（通常由CI/CD管理）
+.deploy/
+.docker/
+*.dockerignore
+
+# 证书和密钥（绝对不能提交！）
+*.pem
+*.key
+*.crt
+*.cer
+*.der
+id_rsa
+id_rsa.pub
+id_dsa
+id_dsa.pub
+*.p12
+*.pfx
+
+# 其他安全敏感文件
+.secrets
+secrets.yaml
+secrets.json
+.credentials
+
+# Cursor
+#  Cursor is an AI-powered code editor. `.cursorignore` specifies files/directories to
+#  exclude from AI features like autocomplete and code analysis. Recommended for sensitive data
+#  refer to https://docs.cursor.com/context/ignore-files
+.cursorignore
+.cursorindexingignore
+
+# Marimo
+marimo/_static/
+marimo/_lsp/
+__marimo__/
