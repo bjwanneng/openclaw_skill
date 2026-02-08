@@ -66,6 +66,10 @@ from .analysis import (
     # 基本面指标
     calculate_fundamental_indicators,
     FundamentalAnalyzer,
+    # 筹码分析
+    analyze_chip_distribution,
+    fetch_chip_distribution,
+    ChipAnalyzer,
     # 综合分析
     analyze_stock,
     StockAnalyzer,
@@ -137,6 +141,11 @@ __all__ = [
     "TechnicalAnalyzer",
     "calculate_fundamental_indicators",
     "FundamentalAnalyzer",
+    # 筹码分析
+    "analyze_chip_distribution",
+    "fetch_chip_distribution",
+    "ChipAnalyzer",
+    # 综合分析
     "analyze_stock",
     "StockAnalyzer",
     "PredictionResult",

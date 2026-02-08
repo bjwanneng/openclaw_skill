@@ -25,6 +25,7 @@ from ..analysis.fundamental_analysis import (
     calculate_fundamental_indicators,
     FundamentalAnalyzer
 )
+from ..analysis.chip_analysis import analyze_chip_distribution
 
 try:
     import akshare as ak
@@ -100,6 +101,7 @@ def analyze_stock(
             "fundamental_analysis": {},
             "fund_flow_analysis": {},
             "news_analysis": {},
+            "chip_analysis": {},
             "risk_assessment": {},
             "prediction": {}
         }
@@ -246,7 +248,29 @@ def analyze_stock(
                 "error": str(e)
             }
 
-        # 6. 风险评估
+        # 6. 筹码分布分析
+        try:
+            current_price = result.get("basic_info", {}).get("current_price", None)
+            chip_data = analyze_chip_distribution(
+                symbol=symbol,
+                current_price=current_price,
+                adjust="qfq"
+            )
+            result["chip_analysis"] = chip_data
+            logger.info(f"[{symbol}] 筹码分析完成")
+        except Exception as e:
+            logger.warning(f"[{symbol}] 筹码分析失败: {e}")
+            result["chip_analysis"] = {
+                "latest": {},
+                "trend": {},
+                "assessment": {
+                    "chip_status": "unknown",
+                    "summary": f"筹码分析失败: {e}"
+                },
+                "error": str(e)
+            }
+
+        # 7. 风险评估
         try:
             risk_factors = []
 
@@ -303,7 +327,7 @@ def analyze_stock(
         except Exception as e:
             logger.warning(f"[{symbol}] 风险评估失败: {e}")
 
-        # 6. 后市预测
+        # 8. 后市预测
         try:
             # 基于技术和基本面综合判断
             trend_probability = 0.5
@@ -367,6 +391,36 @@ def analyze_stock(
                 elif main_inflow < 0:
                     trend_probability -= 0.1
                     key_factors.append("主力资金净流出")
+
+            # 筹码面判断
+            if "chip_analysis" in result and result["chip_analysis"]:
+                chip = result["chip_analysis"]
+                chip_assessment = chip.get("assessment", {})
+                chip_trend = chip.get("trend", {})
+
+                chip_status = chip_assessment.get("chip_status", "neutral")
+                if chip_status in ("highly_concentrated", "concentrated"):
+                    trend_probability += 0.05
+                    key_factors.append("筹码集中")
+                elif chip_status == "dispersed":
+                    trend_probability -= 0.05
+                    key_factors.append("筹码分散")
+
+                conc_trend = chip_trend.get("concentration_trend", "stable")
+                if conc_trend == "concentrating":
+                    trend_probability += 0.05
+                    key_factors.append("筹码趋于集中")
+                elif conc_trend == "dispersing":
+                    trend_probability -= 0.05
+                    key_factors.append("筹码趋于分散")
+
+                chip_latest = chip.get("latest", {})
+                winner_rate = chip_latest.get("winner_rate", 0.5)
+                if winner_rate > 0.90:
+                    trend_probability -= 0.05
+                    key_factors.append("获利盘压力大")
+                elif winner_rate < 0.10:
+                    key_factors.append("套牢盘较重")
 
             # 确定趋势方向
             if trend_probability > 0.6:
@@ -486,6 +540,7 @@ class StockAnalyzer:
         fundamental = analysis_result.get("fundamental_analysis", {})
         fund_flow = analysis_result.get("fund_flow_analysis", {})
         news = analysis_result.get("news_analysis", {})
+        chip = analysis_result.get("chip_analysis", {})
         risk = analysis_result.get("risk_assessment", {})
         prediction = analysis_result.get("prediction", {})
 
@@ -606,7 +661,65 @@ class StockAnalyzer:
         lines.extend([
             "",
             "-" * 60,
-            "【五、风险评估】",
+            "【五、筹码分布分析】",
+            "-" * 60,
+        ])
+
+        if chip and chip.get("latest"):
+            chip_latest = chip.get("latest", {})
+            chip_trend = chip.get("trend", {})
+            chip_assessment = chip.get("assessment", {})
+
+            lines.extend([
+                f"数据日期：{chip_latest.get('date', 'N/A')}",
+                f"",
+                f"筹码概况：",
+                f"  获利比例：{chip_latest.get('winner_rate', 0)*100:.2f}%",
+                f"  平均成本：{chip_latest.get('average_cost', 'N/A')} 元",
+                f"",
+                f"筹码集中度：",
+                f"  90%成本区间：{chip_latest.get('cost_90_low', 'N/A')} - {chip_latest.get('cost_90_high', 'N/A')} 元（集中度 {chip_latest.get('concentration_90', 0)*100:.2f}%）",
+                f"  70%成本区间：{chip_latest.get('cost_70_low', 'N/A')} - {chip_latest.get('cost_70_high', 'N/A')} 元（集中度 {chip_latest.get('concentration_70', 0)*100:.2f}%）",
+            ])
+
+            # 趋势信息
+            if chip_trend:
+                conc_trend_map = {
+                    "concentrating": "趋于集中",
+                    "dispersing": "趋于分散",
+                    "stable": "保持稳定"
+                }
+                cost_trend_map = {
+                    "rising": "上移",
+                    "falling": "下移",
+                    "stable": "稳定"
+                }
+                lines.extend([
+                    f"",
+                    f"筹码趋势：",
+                    f"  集中度变化：{conc_trend_map.get(chip_trend.get('concentration_trend', 'stable'), '稳定')}",
+                    f"  成本中心：{cost_trend_map.get(chip_trend.get('cost_center_trend', 'stable'), '稳定')}",
+                ])
+
+            # 综合评估
+            if chip_assessment:
+                lines.extend([
+                    f"",
+                    f"筹码评估：{chip_assessment.get('summary', 'N/A')}",
+                ])
+                chip_signals = chip_assessment.get("signals", [])
+                if chip_signals:
+                    for signal in chip_signals:
+                        lines.append(f"  - {signal}")
+        elif chip and chip.get("error"):
+            lines.append(f"筹码数据获取失败: {chip.get('error', '未知错误')}")
+        else:
+            lines.append("暂无筹码分布数据")
+
+        lines.extend([
+            "",
+            "-" * 60,
+            "【六、风险评估】",
             "-" * 60,
         ])
 
@@ -635,7 +748,7 @@ class StockAnalyzer:
         lines.extend([
             "",
             "-" * 60,
-            "【六、后市预测】",
+            "【七、后市预测】",
             "-" * 60,
         ])
 

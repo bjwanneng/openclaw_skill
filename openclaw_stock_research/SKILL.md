@@ -64,15 +64,16 @@ pytest tests/ -v
 
 ```
 ${PROJECT_ROOT}/src/openclaw_stock/
-├── __init__.py              # 统一导出所有10个接口
+├── __init__.py              # 统一导出所有接口
 ├── data/                    # 数据采集模块（3个接口）
 │   ├── market_data.py       # 接口1: fetch_market_data
 │   ├── financial_data.py    # 接口2: fetch_financial_data
 │   └── fund_flow.py         # 接口3: fetch_fund_flow
-├── analysis/                # 分析模块（4个接口）
+├── analysis/                # 分析模块（5个接口）
 │   ├── technical_analysis.py    # 接口4, 9
 │   ├── fundamental_analysis.py  # 接口5
-│   └── stock_analyzer.py        # 接口8
+│   ├── stock_analyzer.py        # 接口8
+│   └── chip_analysis.py         # 筹码分布分析
 ├── selection/               # 选股模块（2个接口）
 │   ├── short_term.py        # 接口6
 │   ├── long_term.py         # 接口7
@@ -211,8 +212,19 @@ fundamental = calculate_fundamental_indicators(symbol='000001')
 ```python
 from src.openclaw_stock import analyze_stock
 
-# 全方位分析（包含技术面、基本面、资金流向、新闻面）
+# 全方位分析（包含技术面、基本面、资金流向、新闻面、筹码分布）
 result = analyze_stock(symbol='000001', market='sz')
+```
+
+#### 筹码分布分析
+```python
+from src.openclaw_stock import analyze_chip_distribution, fetch_chip_distribution
+
+# 获取原始筹码分布数据（DataFrame）
+df = fetch_chip_distribution(symbol='601127', adjust='qfq')
+
+# 筹码综合分析（返回字典，含获利比例、集中度、趋势等）
+chip_result = analyze_chip_distribution(symbol='601127', current_price=109.08)
 ```
 
 #### 选股
@@ -297,6 +309,22 @@ alert_id = setup_alert(
    从行业来看，伴随2025年底新能源汽车购置税免征政策结束、车企年终促销提前透支需求，2026年初新能源车市...
 
 ... 还有 4 条新闻
+
+【筹码分布分析】
+数据日期：2026-02-06
+筹码概况：
+  获利比例：7.74%
+  平均成本：126.25 元
+筹码集中度：
+  90%成本区间：107.38 - 162.56 元（集中度 20.44%）
+  70%成本区间：115.40 - 155.49 元（集中度 14.80%）
+筹码趋势：
+  集中度变化：趋于分散
+  成本中心：下移
+筹码评估：筹码分布适中，获利比例7.7%，平均成本126.25元，筹码趋于分散。
+  - 获利比例极低(7.7%)，多数筹码被套
+  - 筹码趋于分散，可能有主力派发
+  - 成本中心下移，持仓成本降低
 
 【风险评估】
 综合风险等级：中等
@@ -385,6 +413,42 @@ alert_id = setup_alert(
     "valuation_level": "合理估值",
     "profitability_level": "strong",
     "growth_level": "high"
+  }
+}
+```
+
+### 筹码分布分析结果
+```json
+{
+  "latest": {
+    "date": "2026-02-06",
+    "winner_rate": 0.0774,
+    "average_cost": 126.25,
+    "cost_90_low": 107.38,
+    "cost_90_high": 162.56,
+    "concentration_90": 0.2044,
+    "cost_70_low": 115.4,
+    "cost_70_high": 155.49,
+    "concentration_70": 0.148,
+    "cost_90_range": 55.18,
+    "cost_70_range": 40.09
+  },
+  "trend": {
+    "concentration_trend": "dispersing",
+    "cost_center_trend": "falling",
+    "winner_rate_trend": "stable",
+    "period_days": 90
+  },
+  "assessment": {
+    "chip_status": "neutral",
+    "pressure_level": "low",
+    "support_level": "low",
+    "signals": [
+      "获利比例极低(7.7%)，多数筹码被套",
+      "筹码趋于分散，可能有主力派发",
+      "成本中心下移，持仓成本降低"
+    ],
+    "summary": "筹码分布适中，获利比例7.7%，平均成本126.25元，筹码趋于分散。"
   }
 }
 ```
