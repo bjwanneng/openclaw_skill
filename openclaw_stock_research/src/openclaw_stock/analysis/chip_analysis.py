@@ -142,16 +142,25 @@ def _safe_float(value) -> float:
 
 def _analyze_chip_trend(df: pd.DataFrame) -> Dict[str, Any]:
     """
-    分析筹码变化趋势
+    分析筹码变化趋势（增强版）
 
-    对比最近数据与早期数据，判断筹码集中/发散趋势
+    多周期对比 + 主力行为推断：
+    - 短期(5日)、中期(10日)、长期(20日)三个维度
+    - 筹码迁移速度分析
+    - 集中度变化率（反映主力操作力度）
+    - 获利比例与集中度交叉分析（推断主力吸筹/派发）
+    - 成本中心移动方向和速度
     """
     trend = {
         "concentration_trend": "stable",  # concentrating / dispersing / stable
         "cost_center_trend": "stable",    # rising / falling / stable
         "winner_rate_trend": "stable",    # rising / falling / stable
         "period_days": 0,
-        "details": {}
+        "institutional_signal": "neutral",  # accumulating / distributing / neutral / unclear
+        "institutional_confidence": "low",  # low / medium / high
+        "multi_period": {},                 # 多周期分析
+        "details": {},
+        "interpretation": []               # 人话解读
     }
 
     if len(df) < 5:
@@ -159,7 +168,42 @@ def _analyze_chip_trend(df: pd.DataFrame) -> Dict[str, Any]:
 
     trend["period_days"] = len(df)
 
-    # 取最近5日和前5日（或可用的早期数据）对比
+    # ========== 多周期分析 ==========
+    periods = {"short": 5, "medium": 10, "long": 20}
+    for period_name, period_len in periods.items():
+        if len(df) < period_len + 5:
+            continue
+
+        recent = df.iloc[-period_len:]
+        earlier = df.iloc[-(period_len * 2):-period_len] if len(df) >= period_len * 2 else df.iloc[:period_len]
+
+        recent_conc_90 = recent["90集中度"].mean()
+        earlier_conc_90 = earlier["90集中度"].mean()
+        recent_conc_70 = recent["70集中度"].mean()
+        earlier_conc_70 = earlier["70集中度"].mean()
+        recent_avg_cost = recent["平均成本"].mean()
+        earlier_avg_cost = earlier["平均成本"].mean()
+        recent_winner = recent["获利比例"].mean()
+        earlier_winner = earlier["获利比例"].mean()
+
+        conc_90_change = (recent_conc_90 - earlier_conc_90) / earlier_conc_90 if earlier_conc_90 != 0 else 0
+        conc_70_change = (recent_conc_70 - earlier_conc_70) / earlier_conc_70 if earlier_conc_70 != 0 else 0
+        cost_change = (recent_avg_cost - earlier_avg_cost) / earlier_avg_cost if earlier_avg_cost != 0 else 0
+        winner_change = recent_winner - earlier_winner
+
+        trend["multi_period"][period_name] = {
+            "days": period_len,
+            "concentration_90_change_pct": round(conc_90_change * 100, 2),
+            "concentration_70_change_pct": round(conc_70_change * 100, 2),
+            "cost_center_change_pct": round(cost_change * 100, 2),
+            "winner_rate_change": round(winner_change * 100, 2),
+            "recent_avg_cost": round(float(recent_avg_cost), 2),
+            "earlier_avg_cost": round(float(earlier_avg_cost), 2),
+            "recent_concentration_90": round(float(recent_conc_90), 4),
+            "recent_winner_rate": round(float(recent_winner * 100), 2),
+        }
+
+    # ========== 主趋势判断（基于短期数据） ==========
     recent_n = min(5, len(df))
     early_start = max(0, len(df) - 20)
     early_end = max(recent_n, len(df) - 10)
@@ -170,7 +214,6 @@ def _analyze_chip_trend(df: pd.DataFrame) -> Dict[str, Any]:
     recent = df.iloc[-recent_n:]
     early = df.iloc[early_start:early_end]
 
-    # 集中度趋势（90集中度越小越集中）
     recent_conc_90 = recent["90集中度"].mean()
     early_conc_90 = early["90集中度"].mean()
 
@@ -178,8 +221,6 @@ def _analyze_chip_trend(df: pd.DataFrame) -> Dict[str, Any]:
         trend["concentration_trend"] = "concentrating"
     elif recent_conc_90 > early_conc_90 * 1.05:
         trend["concentration_trend"] = "dispersing"
-    else:
-        trend["concentration_trend"] = "stable"
 
     trend["details"]["recent_concentration_90"] = round(float(recent_conc_90), 4)
     trend["details"]["early_concentration_90"] = round(float(early_conc_90), 4)
@@ -192,8 +233,6 @@ def _analyze_chip_trend(df: pd.DataFrame) -> Dict[str, Any]:
         trend["cost_center_trend"] = "rising"
     elif recent_avg_cost < early_avg_cost * 0.98:
         trend["cost_center_trend"] = "falling"
-    else:
-        trend["cost_center_trend"] = "stable"
 
     trend["details"]["recent_avg_cost"] = round(float(recent_avg_cost), 2)
     trend["details"]["early_avg_cost"] = round(float(early_avg_cost), 2)
@@ -206,13 +245,120 @@ def _analyze_chip_trend(df: pd.DataFrame) -> Dict[str, Any]:
         trend["winner_rate_trend"] = "rising"
     elif recent_winner < early_winner - 0.05:
         trend["winner_rate_trend"] = "falling"
-    else:
-        trend["winner_rate_trend"] = "stable"
 
     trend["details"]["recent_winner_rate"] = round(float(recent_winner), 4)
     trend["details"]["early_winner_rate"] = round(float(early_winner), 4)
 
+    # ========== 集中度变化速率（反映主力操作力度） ==========
+    if len(df) >= 10:
+        conc_series = df["90集中度"].iloc[-20:] if len(df) >= 20 else df["90集中度"]
+        conc_slope = _calc_slope(conc_series)
+        trend["details"]["concentration_slope"] = round(float(conc_slope), 6)
+        # 斜率为负 = 集中度在缩小 = 筹码在集中
+        if conc_slope < -0.001:
+            trend["details"]["concentration_speed"] = "fast_concentrating"
+        elif conc_slope < 0:
+            trend["details"]["concentration_speed"] = "slow_concentrating"
+        elif conc_slope > 0.001:
+            trend["details"]["concentration_speed"] = "fast_dispersing"
+        elif conc_slope > 0:
+            trend["details"]["concentration_speed"] = "slow_dispersing"
+        else:
+            trend["details"]["concentration_speed"] = "stable"
+
+    # ========== 主力行为推断（核心逻辑） ==========
+    # 交叉分析：集中度变化 × 获利比例变化 × 成本中心变化
+    accumulation_score = 0
+    distribution_score = 0
+    interpretations = []
+
+    conc_trend = trend["concentration_trend"]
+    cost_trend = trend["cost_center_trend"]
+    winner_trend = trend["winner_rate_trend"]
+
+    # 信号1: 筹码集中 + 获利比例下降 → 典型主力低位吸筹
+    if conc_trend == "concentrating" and winner_trend == "falling":
+        accumulation_score += 3
+        interpretations.append("🟢 筹码集中+获利比例下降：典型的主力低位吸筹信号")
+
+    # 信号2: 筹码集中 + 成本中心下移 → 主力在低位收集筹码
+    if conc_trend == "concentrating" and cost_trend == "falling":
+        accumulation_score += 2
+        interpretations.append("🟢 筹码集中+成本下移：主力在低位收集筹码")
+
+    # 信号3: 筹码集中 + 获利比例上升 → 主力拉升控盘
+    if conc_trend == "concentrating" and winner_trend == "rising":
+        accumulation_score += 1
+        interpretations.append("🟡 筹码集中+获利比例上升：主力拉升控盘阶段")
+
+    # 信号4: 筹码分散 + 获利比例高 → 主力高位派发
+    if conc_trend == "dispersing" and winner_trend == "rising":
+        distribution_score += 3
+        interpretations.append("🔴 筹码分散+获利比例上升：主力高位派发信号")
+
+    # 信号5: 筹码分散 + 成本中心上移 → 高位换手，可能是派发
+    if conc_trend == "dispersing" and cost_trend == "rising":
+        distribution_score += 2
+        interpretations.append("🔴 筹码分散+成本上移：高位换手活跃，警惕主力出货")
+
+    # 信号6: 筹码分散 + 获利比例下降 → 恐慌性抛售或洗盘
+    if conc_trend == "dispersing" and winner_trend == "falling":
+        distribution_score += 1
+        accumulation_score += 1  # 也可能是洗盘
+        interpretations.append("🟡 筹码分散+获利比例下降：可能是恐慌抛售或主力洗盘")
+
+    # 信号7: 成本中心下移 + 获利比例极低 → 底部区域
+    latest_winner = float(df.iloc[-1]["获利比例"])
+    if cost_trend == "falling" and latest_winner < 0.15:
+        accumulation_score += 1
+        interpretations.append("🟢 成本下移+获利比例极低：可能处于底部区域")
+
+    # 信号8: 70%集中度持续收窄 → 主力控盘程度加深
+    if len(df) >= 10:
+        recent_70 = df["70集中度"].iloc[-5:].mean()
+        early_70 = df["70集中度"].iloc[-15:-5].mean() if len(df) >= 15 else df["70集中度"].iloc[:5].mean()
+        if recent_70 < early_70 * 0.90:
+            accumulation_score += 2
+            interpretations.append("🟢 70%筹码集中度显著收窄：主力控盘程度加深")
+        elif recent_70 > early_70 * 1.10:
+            distribution_score += 1
+            interpretations.append("🔴 70%筹码集中度扩大：持仓分歧加大")
+
+    # 综合判断主力态度
+    if accumulation_score >= 3 and accumulation_score > distribution_score * 2:
+        trend["institutional_signal"] = "accumulating"
+        trend["institutional_confidence"] = "high" if accumulation_score >= 5 else "medium"
+    elif accumulation_score > distribution_score:
+        trend["institutional_signal"] = "accumulating"
+        trend["institutional_confidence"] = "low"
+    elif distribution_score >= 3 and distribution_score > accumulation_score * 2:
+        trend["institutional_signal"] = "distributing"
+        trend["institutional_confidence"] = "high" if distribution_score >= 5 else "medium"
+    elif distribution_score > accumulation_score:
+        trend["institutional_signal"] = "distributing"
+        trend["institutional_confidence"] = "low"
+    else:
+        trend["institutional_signal"] = "neutral"
+        trend["institutional_confidence"] = "low"
+
+    trend["details"]["accumulation_score"] = accumulation_score
+    trend["details"]["distribution_score"] = distribution_score
+    trend["interpretation"] = interpretations
+
     return trend
+
+
+def _calc_slope(series: pd.Series) -> float:
+    """计算序列的线性回归斜率"""
+    try:
+        y = series.values.astype(float)
+        x = np.arange(len(y))
+        if len(x) < 2:
+            return 0.0
+        slope = np.polyfit(x, y, 1)[0]
+        return float(slope)
+    except Exception:
+        return 0.0
 
 
 def _assess_chip_status(
@@ -296,6 +442,36 @@ def _assess_chip_status(
     elif cost_trend == "falling":
         assessment["signals"].append("成本中心下移，持仓成本降低")
 
+    # --- 主力行为信号（增强版） ---
+    inst_signal = trend.get("institutional_signal", "neutral")
+    inst_confidence = trend.get("institutional_confidence", "low")
+    interpretations = trend.get("interpretation", [])
+
+    inst_signal_map = {
+        "accumulating": "主力吸筹",
+        "distributing": "主力派发",
+        "neutral": "主力态度不明",
+    }
+    inst_confidence_map = {
+        "high": "强",
+        "medium": "中等",
+        "low": "弱",
+    }
+
+    assessment["institutional_signal"] = inst_signal
+    assessment["institutional_confidence"] = inst_confidence
+    assessment["institutional_interpretation"] = interpretations
+
+    if inst_signal != "neutral":
+        assessment["signals"].append(
+            f"主力行为研判：{inst_signal_map.get(inst_signal, '不明')}（信号强度：{inst_confidence_map.get(inst_confidence, '弱')}）"
+        )
+
+    # 多周期信息
+    multi_period = trend.get("multi_period", {})
+    if multi_period:
+        assessment["multi_period_summary"] = multi_period
+
     # --- 生成总结 ---
     summary_parts = []
 
@@ -321,6 +497,12 @@ def _assess_chip_status(
         "stable": "筹码分布稳定"
     }
     summary_parts.append(trend_desc_map.get(conc_trend, ""))
+
+    # 主力行为描述
+    if inst_signal == "accumulating":
+        summary_parts.append(f"研判主力吸筹（{inst_confidence_map.get(inst_confidence, '弱')}信号）")
+    elif inst_signal == "distributing":
+        summary_parts.append(f"研判主力派发（{inst_confidence_map.get(inst_confidence, '弱')}信号）")
 
     assessment["summary"] = "，".join(filter(None, summary_parts)) + "。"
 
