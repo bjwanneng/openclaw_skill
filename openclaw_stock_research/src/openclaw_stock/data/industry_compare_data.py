@@ -8,6 +8,7 @@ from typing import Dict, Any, List
 from datetime import datetime
 import pandas as pd
 import time
+import concurrent.futures
 
 from ..utils.logger import get_logger
 
@@ -17,6 +18,13 @@ except ImportError:
     ak = None
 
 logger = get_logger(__name__)
+
+
+def _fetch_with_timeout(func, timeout=15, **kwargs):
+    """带超时的函数调用包装器"""
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(func, **kwargs)
+        return future.result(timeout=timeout)
 
 
 def fetch_industry_compare_data(symbol: str) -> Dict[str, Any]:
@@ -69,37 +77,38 @@ def fetch_industry_compare_data(symbol: str) -> Dict[str, Any]:
     except Exception as e:
         logger.warning(f"[industry] 获取个股信息失败: {e}")
 
-    # 2. 获取同行业成分股
+    # 2. 获取同行业成分股（带超时保护，eastmoney接口可能不稳定）
     if industry_name:
-        max_retries = 2
-        for attempt in range(max_retries):
-            try:
-                df_cons = ak.stock_board_industry_cons_em(symbol=industry_name)
-                if df_cons is not None and not df_cons.empty:
-                    peers = []
-                    for _, row in df_cons.iterrows():
-                        peer = {
-                            "code": str(row.get("代码", "")),
-                            "name": str(row.get("名称", "")),
-                            "price": float(row.get("最新价", 0) or 0),
-                            "change_pct": float(row.get("涨跌幅", 0) or 0),
-                            "pe": float(row.get("市盈率-动态", 0) or 0),
-                            "pb": float(row.get("市净率", 0) or 0),
-                            "total_market_cap": float(row.get("总市值", 0) or 0),
-                            "turnover_rate": float(row.get("换手率", 0) or 0),
-                        }
-                        peers.append(peer)
+        try:
+            df_cons = _fetch_with_timeout(
+                ak.stock_board_industry_cons_em,
+                timeout=10,
+                symbol=industry_name
+            )
+            if df_cons is not None and not df_cons.empty:
+                peers = []
+                for _, row in df_cons.iterrows():
+                    peer = {
+                        "code": str(row.get("代码", "")),
+                        "name": str(row.get("名称", "")),
+                        "price": float(row.get("最新价", 0) or 0),
+                        "change_pct": float(row.get("涨跌幅", 0) or 0),
+                        "pe": float(row.get("市盈率-动态", 0) or 0),
+                        "pb": float(row.get("市净率", 0) or 0),
+                        "total_market_cap": float(row.get("总市值", 0) or 0),
+                        "turnover_rate": float(row.get("换手率", 0) or 0),
+                    }
+                    peers.append(peer)
 
-                    result["industry_peers"] = peers
-                    logger.info(f"[industry] {industry_name} 共{len(peers)}只成分股")
+                result["industry_peers"] = peers
+                logger.info(f"[industry] {industry_name} 共{len(peers)}只成分股")
 
-                    # 3. 计算行业对比
-                    result["comparison"] = _calculate_comparison(symbol, peers)
-                    break
-            except Exception as e:
-                logger.warning(f"[industry] 获取行业成分股失败(尝试{attempt+1}): {e}")
-                if attempt < max_retries - 1:
-                    time.sleep(2)
+                # 3. 计算行业对比
+                result["comparison"] = _calculate_comparison(symbol, peers)
+        except concurrent.futures.TimeoutError:
+            logger.warning(f"[industry] 获取行业成分股超时(10s)，跳过行业对比")
+        except Exception as e:
+            logger.warning(f"[industry] 获取行业成分股失败: {e}")
 
     # 4. 分析
     result["analysis"] = _analyze_industry(result)

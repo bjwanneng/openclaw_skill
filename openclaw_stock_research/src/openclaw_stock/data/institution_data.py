@@ -5,7 +5,7 @@
 """
 
 from typing import Dict, Any, List
-from datetime import datetime
+from datetime import datetime, timedelta
 import pandas as pd
 
 from ..utils.logger import get_logger
@@ -15,7 +15,57 @@ try:
 except ImportError:
     ak = None
 
+try:
+    import requests as _requests
+except ImportError:
+    _requests = None
+
 logger = get_logger(__name__)
+
+
+def _fetch_institution_research_direct(symbol: str, days: int = 180) -> List[Dict]:
+    """
+    直接调用东方财富API获取个股机构调研数据（按股票代码过滤，避免全量翻页）
+    """
+    if _requests is None:
+        return []
+
+    start_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    url = "https://datacenter-web.eastmoney.com/api/data/v1/get"
+    params = {
+        "sortColumns": "NOTICE_DATE,RECEIVE_START_DATE,SECURITY_CODE",
+        "sortTypes": "-1,-1,1",
+        "pageSize": "50",
+        "pageNumber": "1",
+        "reportName": "RPT_ORG_SURVEYNEW",
+        "columns": "ALL",
+        "source": "WEB",
+        "client": "WEB",
+        "filter": f'(NUMBERNEW="1")(IS_SOURCE="1")(SECURITY_CODE="{symbol}")',
+    }
+
+    try:
+        r = _requests.get(url, params=params, timeout=10)
+        data = r.json()
+        if not data.get("success") or not data.get("result"):
+            return []
+
+        records = data["result"].get("data", [])
+        result = []
+        for rec in records:
+            result.append({
+                "name": rec.get("SECURITY_NAME_ABBR", ""),
+                "research_org": rec.get("RECEIVE_OBJECT", ""),
+                "org_type": rec.get("ORG_TYPE", ""),
+                "research_date": str(rec.get("RECEIVE_START_DATE", ""))[:10],
+                "notice_date": str(rec.get("NOTICE_DATE", ""))[:10],
+                "receive_way": rec.get("RECEIVE_WAY_EXPLAIN", ""),
+                "research_org_count": int(rec.get("SUM", 0) or 0),
+            })
+        return result
+    except Exception as e:
+        logger.warning(f"[institution] 直接获取机构调研数据失败: {e}")
+        return []
 
 
 def fetch_institution_data(symbol: str) -> Dict[str, Any]:
@@ -42,12 +92,12 @@ def fetch_institution_data(symbol: str) -> Dict[str, Any]:
         "analysis": {}
     }
 
-    # 1. 获取机构持仓数据（尝试最近几个季度）
+    # 1. 获取机构持仓数据（stock_institute_hold 单次请求，速度快）
     now = datetime.now()
     year = now.year
     quarter = (now.month - 1) // 3  # 0-3, 上一季度
 
-    for attempt in range(4):  # 尝试最近4个季度
+    for attempt in range(6):  # 尝试最近6个季度（数据可能滞后1-2个季度）
         q = quarter - attempt
         y = year
         while q <= 0:
@@ -76,24 +126,12 @@ def fetch_institution_data(symbol: str) -> Dict[str, Any]:
             logger.debug(f"[institution] 获取{quarter_str}季度机构持仓失败: {e}")
             continue
 
-    # 2. 获取机构调研数据
+    # 2. 获取机构调研数据（直接API调用，按股票代码过滤，避免全量翻页）
     try:
-        # stock_jgdy_tj_em 按日期查询，获取最近的调研统计
-        start_date = (datetime.now() - pd.Timedelta(days=180)).strftime("%Y%m%d")
-        df_dy = ak.stock_jgdy_tj_em(date=start_date)
-        if df_dy is not None and not df_dy.empty and '代码' in df_dy.columns:
-            df_dy_stock = df_dy[df_dy['代码'] == symbol]
-            if not df_dy_stock.empty:
-                research_list = []
-                for _, row in df_dy_stock.iterrows():
-                    research_list.append({
-                        "name": str(row.get("名称", "")),
-                        "research_org_count": int(row.get("接待机构数量", 0) or 0),
-                        "research_date": str(row.get("最近调研日期", "")),
-                        "research_count": int(row.get("调研次数", 0) or 0),
-                    })
-                result["research"] = research_list
-                logger.info(f"[institution] {symbol} 机构调研记录: {len(research_list)}")
+        research_list = _fetch_institution_research_direct(symbol, days=180)
+        if research_list:
+            result["research"] = research_list
+            logger.info(f"[institution] {symbol} 机构调研记录: {len(research_list)}")
     except Exception as e:
         logger.warning(f"[institution] 获取机构调研数据失败: {e}")
 
@@ -158,10 +196,11 @@ def _analyze_institution(data: Dict[str, Any]) -> Dict[str, Any]:
 
     # 调研情况
     if research:
-        total_research = sum(r.get("research_count", 0) for r in research)
-        total_orgs = sum(r.get("research_org_count", 0) for r in research)
-        if total_research > 0:
-            parts.append(f"近半年被调研{total_research}次，接待{total_orgs}家机构")
+        total_orgs = len(research)
+        # 统计不同机构数
+        unique_orgs = set(r.get("research_org", "") for r in research if r.get("research_org"))
+        if total_orgs > 0:
+            parts.append(f"近半年被{len(unique_orgs)}家机构调研{total_orgs}次")
 
     analysis["summary"] = "，".join(parts) if parts else "机构持仓数据不足"
 
