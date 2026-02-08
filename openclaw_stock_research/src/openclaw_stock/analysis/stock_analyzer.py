@@ -16,6 +16,15 @@ from ..data.market_data import fetch_market_data, fetch_realtime_quote
 from ..data.financial_data import fetch_financial_data
 from ..data.fund_flow import fetch_fund_flow, fetch_capital_flow
 from ..data.news_data import fetch_stock_news
+from ..data.lhb_data import fetch_lhb_data
+from ..data.margin_data import fetch_margin_data
+from ..data.northbound_data import fetch_northbound_data
+from ..data.block_trade_data import fetch_block_trade_data
+from ..data.shareholder_data import fetch_shareholder_data
+from ..data.institution_data import fetch_institution_data
+from ..data.restricted_shares_data import fetch_restricted_shares_data
+from ..data.industry_compare_data import fetch_industry_compare_data
+from ..data.dividend_data import fetch_dividend_data
 from ..analysis.technical_analysis import (
     calculate_technical_indicators,
     calculate_support_resistance,
@@ -102,6 +111,17 @@ def analyze_stock(
             "fund_flow_analysis": {},
             "news_analysis": {},
             "chip_analysis": {},
+            # === 新增9大数据源 ===
+            "lhb_analysis": {},
+            "margin_analysis": {},
+            "northbound_analysis": {},
+            "block_trade_analysis": {},
+            "shareholder_analysis": {},
+            "institution_analysis": {},
+            "restricted_shares_analysis": {},
+            "industry_compare_analysis": {},
+            "dividend_analysis": {},
+            # === END ===
             "risk_assessment": {},
             "prediction": {}
         }
@@ -270,7 +290,83 @@ def analyze_stock(
                 "error": str(e)
             }
 
-        # 7. 风险评估
+        # === 7-15: 新增9大数据源 ===
+
+        # 7. 龙虎榜
+        try:
+            lhb_data = fetch_lhb_data(symbol=symbol, days=90)
+            result["lhb_analysis"] = lhb_data
+            logger.info(f"[{symbol}] 龙虎榜分析完成")
+        except Exception as e:
+            logger.warning(f"[{symbol}] 龙虎榜分析失败: {e}")
+
+        # 8. 融资融券
+        try:
+            margin_data = fetch_margin_data(symbol=symbol, days=30)
+            result["margin_analysis"] = margin_data
+            logger.info(f"[{symbol}] 融资融券分析完成")
+        except Exception as e:
+            logger.warning(f"[{symbol}] 融资融券分析失败: {e}")
+
+        # 9. 北向资金
+        try:
+            northbound_data = fetch_northbound_data(symbol=symbol, market=market)
+            result["northbound_analysis"] = northbound_data
+            logger.info(f"[{symbol}] 北向资金分析完成")
+        except Exception as e:
+            logger.warning(f"[{symbol}] 北向资金分析失败: {e}")
+
+        # 10. 大宗交易
+        try:
+            block_trade_data = fetch_block_trade_data(symbol=symbol, days=90)
+            result["block_trade_analysis"] = block_trade_data
+            logger.info(f"[{symbol}] 大宗交易分析完成")
+        except Exception as e:
+            logger.warning(f"[{symbol}] 大宗交易分析失败: {e}")
+
+        # 11. 股东人数
+        try:
+            shareholder_data = fetch_shareholder_data(symbol=symbol)
+            result["shareholder_analysis"] = shareholder_data
+            logger.info(f"[{symbol}] 股东人数分析完成")
+        except Exception as e:
+            logger.warning(f"[{symbol}] 股东人数分析失败: {e}")
+
+        # 12. 机构持仓
+        try:
+            institution_data = fetch_institution_data(symbol=symbol)
+            result["institution_analysis"] = institution_data
+            logger.info(f"[{symbol}] 机构持仓分析完成")
+        except Exception as e:
+            logger.warning(f"[{symbol}] 机构持仓分析失败: {e}")
+
+        # 13. 限售解禁
+        try:
+            restricted_data = fetch_restricted_shares_data(symbol=symbol)
+            result["restricted_shares_analysis"] = restricted_data
+            logger.info(f"[{symbol}] 限售解禁分析完成")
+        except Exception as e:
+            logger.warning(f"[{symbol}] 限售解禁分析失败: {e}")
+
+        # 14. 行业对比
+        try:
+            industry_data = fetch_industry_compare_data(symbol=symbol)
+            result["industry_compare_analysis"] = industry_data
+            logger.info(f"[{symbol}] 行业对比分析完成")
+        except Exception as e:
+            logger.warning(f"[{symbol}] 行业对比分析失败: {e}")
+
+        # 15. 分红送转
+        try:
+            dividend_data = fetch_dividend_data(symbol=symbol)
+            result["dividend_analysis"] = dividend_data
+            logger.info(f"[{symbol}] 分红送转分析完成")
+        except Exception as e:
+            logger.warning(f"[{symbol}] 分红送转分析失败: {e}")
+
+        # === END 9大数据源 ===
+
+        # 16. 风险评估
         try:
             risk_factors = []
 
@@ -421,6 +517,104 @@ def analyze_stock(
                     key_factors.append("获利盘压力大")
                 elif winner_rate < 0.10:
                     key_factors.append("套牢盘较重")
+
+                # 主力行为推断
+                inst_signal = chip_trend.get("institutional_signal", "neutral")
+                if inst_signal == "accumulating":
+                    trend_probability += 0.05
+                    key_factors.append("筹码分析研判主力吸筹")
+                elif inst_signal == "distributing":
+                    trend_probability -= 0.05
+                    key_factors.append("筹码分析研判主力派发")
+
+            # === 新增数据源纳入预测 ===
+
+            # 龙虎榜判断
+            if result.get("lhb_analysis"):
+                lhb = result["lhb_analysis"]
+                lhb_analysis = lhb.get("analysis", {})
+                inst_att = lhb_analysis.get("institution_attitude", "中性")
+                if "净买入" in inst_att:
+                    trend_probability += 0.05
+                    key_factors.append("龙虎榜机构净买入")
+                elif "净卖出" in inst_att:
+                    trend_probability -= 0.05
+                    key_factors.append("龙虎榜机构净卖出")
+
+            # 融资融券判断
+            if result.get("margin_analysis"):
+                margin = result["margin_analysis"]
+                margin_analysis = margin.get("analysis", {})
+                margin_trend = margin_analysis.get("margin_trend", "stable")
+                if margin_trend == "increasing":
+                    trend_probability += 0.05
+                    key_factors.append("融资余额增加（杠杆看多）")
+                elif margin_trend == "decreasing":
+                    trend_probability -= 0.05
+                    key_factors.append("融资余额减少（杠杆看空）")
+
+            # 北向资金判断
+            if result.get("northbound_analysis"):
+                nb = result["northbound_analysis"]
+                nb_analysis = nb.get("analysis", {})
+                nb_direction = nb_analysis.get("direction", "neutral")
+                if nb_direction == "inflow":
+                    trend_probability += 0.05
+                    key_factors.append("北向资金净流入")
+                elif nb_direction == "outflow":
+                    trend_probability -= 0.05
+                    key_factors.append("北向资金净流出")
+
+            # 大宗交易判断
+            if result.get("block_trade_analysis"):
+                bt = result["block_trade_analysis"]
+                bt_analysis = bt.get("analysis", {})
+                bt_premium = bt_analysis.get("avg_premium", 0)
+                if bt_analysis.get("records_count", 0) > 0:
+                    if bt_premium > 0:
+                        trend_probability += 0.03
+                        key_factors.append("大宗交易溢价成交")
+                    elif bt_premium < -5:
+                        trend_probability -= 0.03
+                        key_factors.append("大宗交易大幅折价")
+
+            # 股东人数判断
+            if result.get("shareholder_analysis"):
+                sh = result["shareholder_analysis"]
+                sh_analysis = sh.get("analysis", {})
+                sh_trend = sh_analysis.get("shareholder_trend", "stable")
+                if sh_trend == "decreasing":
+                    trend_probability += 0.05
+                    key_factors.append("股东人数减少（筹码集中）")
+                elif sh_trend == "increasing":
+                    trend_probability -= 0.03
+                    key_factors.append("股东人数增加（筹码分散）")
+
+            # 限售解禁判断
+            if result.get("restricted_shares_analysis"):
+                rs = result["restricted_shares_analysis"]
+                rs_analysis = rs.get("analysis", {})
+                rs_pressure = rs_analysis.get("pressure_level", "low")
+                if rs_pressure == "high":
+                    trend_probability -= 0.05
+                    key_factors.append("近期有大额限售解禁")
+                elif rs_pressure == "medium":
+                    trend_probability -= 0.02
+                    key_factors.append("近期有限售解禁")
+
+            # 机构持仓判断
+            if result.get("institution_analysis"):
+                inst = result["institution_analysis"]
+                inst_analysis = inst.get("analysis", {})
+                inst_trend = inst_analysis.get("holding_trend", "stable")
+                if inst_trend == "increasing":
+                    trend_probability += 0.05
+                    key_factors.append("机构持仓增加")
+                elif inst_trend == "decreasing":
+                    trend_probability -= 0.03
+                    key_factors.append("机构持仓减少")
+
+            # === END 新增数据源 ===
 
             # 确定趋势方向
             if trend_probability > 0.6:
@@ -716,10 +910,167 @@ class StockAnalyzer:
         else:
             lines.append("暂无筹码分布数据")
 
+        # === 新增9大数据源报告章节 ===
+
+        # 六、龙虎榜
+        lhb = analysis_result.get("lhb_analysis", {})
+        lines.extend(["", "-" * 60, "【六、龙虎榜分析】", "-" * 60])
+        lhb_records = lhb.get("records", [])
+        lhb_inst = lhb.get("institution_summary", {})
+        lhb_a = lhb.get("analysis", {})
+        if lhb_records:
+            lines.append(f"近期上榜次数：{len(lhb_records)} 次")
+            lines.append(f"机构态度：{lhb_a.get('institution_attitude', '中性')}")
+            if lhb_inst:
+                lines.append(f"  机构买入总额：{lhb_inst.get('total_buy', 0):.2f} 万元")
+                lines.append(f"  机构卖出总额：{lhb_inst.get('total_sell', 0):.2f} 万元")
+                lines.append(f"  机构净买入：{lhb_inst.get('net_buy', 0):.2f} 万元")
+            lines.append("")
+            for i, rec in enumerate(lhb_records[:3], 1):
+                lines.append(f"  {i}. [{rec.get('date','')}] {rec.get('reason','')}")
+                lines.append(f"     净买入 {rec.get('net_buy',0):.2f}万 | 上榜后1日 {rec.get('after_1d',0):.2f}% | 5日 {rec.get('after_5d',0):.2f}%")
+            if len(lhb_records) > 3:
+                lines.append(f"  ... 还有 {len(lhb_records)-3} 条记录")
+            lines.append(f"综合：{lhb_a.get('summary', '')}")
+        else:
+            lines.append("近期未上龙虎榜")
+
+        # 七、融资融券
+        margin = analysis_result.get("margin_analysis", {})
+        lines.extend(["", "-" * 60, "【七、融资融券分析】", "-" * 60])
+        margin_a = margin.get("analysis", {})
+        margin_latest = margin.get("latest", {})
+        if margin_latest:
+            lines.append(f"融资余额：{margin_latest.get('margin_balance', 'N/A')} 元")
+            lines.append(f"融券余额：{margin_latest.get('short_balance', 'N/A')} 元")
+            lines.append(f"融资买入额：{margin_latest.get('margin_buy', 'N/A')} 元")
+            margin_trend = margin_a.get("margin_trend", "stable")
+            trend_map = {"increasing": "融资余额增加（看多）", "decreasing": "融资余额减少（看空）", "stable": "融资余额稳定"}
+            lines.append(f"趋势：{trend_map.get(margin_trend, '稳定')}")
+            lines.append(f"综合：{margin_a.get('summary', '')}")
+        else:
+            lines.append("暂无融资融券数据（可能非两融标的）")
+
+        # 八、北向资金
+        nb = analysis_result.get("northbound_analysis", {})
+        lines.extend(["", "-" * 60, "【八、北向资金分析】", "-" * 60])
+        nb_a = nb.get("analysis", {})
+        nb_holding = nb.get("holding", {})
+        if nb_holding or nb_a:
+            if nb_holding:
+                lines.append(f"北向持股数量：{nb_holding.get('shares', 'N/A')}")
+                lines.append(f"北向持股市值：{nb_holding.get('market_value', 'N/A')}")
+                lines.append(f"占流通股比：{nb_holding.get('ratio', 'N/A')}")
+            nb_dir = nb_a.get("direction", "neutral")
+            dir_map = {"inflow": "净流入", "outflow": "净流出", "neutral": "中性"}
+            lines.append(f"资金方向：{dir_map.get(nb_dir, '中性')}")
+            lines.append(f"综合：{nb_a.get('summary', '')}")
+        else:
+            lines.append("暂无北向资金数据")
+
+        # 九、大宗交易
+        bt = analysis_result.get("block_trade_analysis", {})
+        lines.extend(["", "-" * 60, "【九、大宗交易分析】", "-" * 60])
+        bt_a = bt.get("analysis", {})
+        bt_records = bt.get("records", [])
+        if bt_records:
+            lines.append(f"近期大宗交易：{bt_a.get('records_count', len(bt_records))} 笔")
+            lines.append(f"平均折溢价率：{bt_a.get('avg_premium', 0):.2f}%")
+            lines.append(f"总成交金额：{bt_a.get('total_amount', 0):.2f} 万元")
+            lines.append("")
+            for i, rec in enumerate(bt_records[:3], 1):
+                lines.append(f"  {i}. [{rec.get('date','')}] 成交价 {rec.get('price','N/A')} 元 | 折溢价 {rec.get('premium',0):.2f}%")
+            if len(bt_records) > 3:
+                lines.append(f"  ... 还有 {len(bt_records)-3} 笔")
+            lines.append(f"综合：{bt_a.get('summary', '')}")
+        else:
+            lines.append("近期无大宗交易")
+
+        # 十、股东人数变化
+        sh = analysis_result.get("shareholder_analysis", {})
+        lines.extend(["", "-" * 60, "【十、股东人数变化】", "-" * 60])
+        sh_a = sh.get("analysis", {})
+        sh_latest = sh.get("latest", {})
+        if sh_latest:
+            lines.append(f"最新股东户数：{sh_latest.get('holder_count', 'N/A')} 户")
+            lines.append(f"户均持股：{sh_latest.get('avg_holding', 'N/A')} 股")
+            lines.append(f"较上期变化：{sh_latest.get('change_pct', 'N/A')}%")
+            sh_trend = sh_a.get("shareholder_trend", "stable")
+            trend_map = {"decreasing": "股东减少（筹码集中）", "increasing": "股东增加（筹码分散）", "stable": "股东人数稳定"}
+            lines.append(f"趋势：{trend_map.get(sh_trend, '稳定')}")
+            lines.append(f"综合：{sh_a.get('summary', '')}")
+        else:
+            lines.append("暂无股东人数数据")
+
+        # 十一、机构持仓
+        inst = analysis_result.get("institution_analysis", {})
+        lines.extend(["", "-" * 60, "【十一、机构持仓分析】", "-" * 60])
+        inst_a = inst.get("analysis", {})
+        inst_holdings = inst.get("holdings", [])
+        if inst_holdings:
+            lines.append(f"持仓机构数：{len(inst_holdings)}")
+            inst_trend = inst_a.get("holding_trend", "stable")
+            trend_map = {"increasing": "机构增持", "decreasing": "机构减持", "stable": "持仓稳定"}
+            lines.append(f"趋势：{trend_map.get(inst_trend, '稳定')}")
+            for i, h in enumerate(inst_holdings[:5], 1):
+                lines.append(f"  {i}. {h.get('name', 'N/A')} | 持股 {h.get('shares', 'N/A')} | 占比 {h.get('ratio', 'N/A')}%")
+            if len(inst_holdings) > 5:
+                lines.append(f"  ... 还有 {len(inst_holdings)-5} 家机构")
+            lines.append(f"综合：{inst_a.get('summary', '')}")
+        else:
+            lines.append("暂无机构持仓数据")
+
+        # 十二、限售解禁
+        rs = analysis_result.get("restricted_shares_analysis", {})
+        lines.extend(["", "-" * 60, "【十二、限售解禁】", "-" * 60])
+        rs_a = rs.get("analysis", {})
+        rs_upcoming = rs.get("upcoming", [])
+        if rs_upcoming:
+            lines.append(f"近期解禁批次：{len(rs_upcoming)}")
+            rs_pressure = rs_a.get("pressure_level", "low")
+            pressure_map = {"high": "高（大额解禁）", "medium": "中等", "low": "低"}
+            lines.append(f"解禁压力：{pressure_map.get(rs_pressure, '低')}")
+            for i, item in enumerate(rs_upcoming[:3], 1):
+                lines.append(f"  {i}. [{item.get('date','')}] 解禁数量 {item.get('shares','N/A')} 股 | 市值 {item.get('market_value','N/A')}")
+            lines.append(f"综合：{rs_a.get('summary', '')}")
+        else:
+            lines.append("近期无限售解禁")
+
+        # 十三、行业对比
+        ind = analysis_result.get("industry_compare_analysis", {})
+        lines.extend(["", "-" * 60, "【十三、行业对比】", "-" * 60])
+        ind_a = ind.get("analysis", {})
+        if ind.get("industry_name"):
+            lines.append(f"所属行业：{ind.get('industry_name', 'N/A')}")
+            lines.append(f"行业排名：{ind_a.get('rank_desc', 'N/A')}")
+            lines.append(f"行业平均PE：{ind_a.get('industry_avg_pe', 'N/A')}")
+            lines.append(f"综合：{ind_a.get('summary', '')}")
+        else:
+            lines.append("暂无行业对比数据")
+
+        # 十四、分红送转
+        div = analysis_result.get("dividend_analysis", {})
+        lines.extend(["", "-" * 60, "【十四、分红送转历史】", "-" * 60])
+        div_a = div.get("analysis", {})
+        div_records = div.get("records", [])
+        if div_records:
+            lines.append(f"分红记录：{len(div_records)} 次")
+            lines.append(f"股息率：{div_a.get('dividend_yield', 'N/A')}%")
+            lines.append(f"分红稳定性：{div_a.get('stability', 'N/A')}")
+            for i, rec in enumerate(div_records[:3], 1):
+                lines.append(f"  {i}. [{rec.get('year','')}] {rec.get('plan', 'N/A')}")
+            if len(div_records) > 3:
+                lines.append(f"  ... 还有 {len(div_records)-3} 条记录")
+            lines.append(f"综合：{div_a.get('summary', '')}")
+        else:
+            lines.append("暂无分红送转记录")
+
+        # === END 新增报告章节 ===
+
         lines.extend([
             "",
             "-" * 60,
-            "【六、风险评估】",
+            "【十五、风险评估】",
             "-" * 60,
         ])
 
@@ -748,7 +1099,7 @@ class StockAnalyzer:
         lines.extend([
             "",
             "-" * 60,
-            "【七、后市预测】",
+            "【十六、后市预测】",
             "-" * 60,
         ])
 
